@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -16,6 +17,8 @@ import (
 )
 
 var (
+	flagIn = flag.String("in", "", "Read environment variables from this file instead of os.Environ ('-' means stdin)")
+
 	flagGlobal   = flag.Bool("global", false, "Walk up the directory tree to find .env files (env: $ENV_GLOBAL)")
 	flagPassword = flag.String("password", "", "Password to encrypt the environment variables (env: $ENV_PASSWORD)")
 	flagWrap     = flag.Int("wrap", 80, "Wrap the output at this many characters")
@@ -110,6 +113,12 @@ func buildEnvMap() map[string]string {
 }
 
 func jsonEnvMap() ([]byte, error) {
+	if *flagIn == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	if *flagIn != "" {
+		return os.ReadFile(*flagIn)
+	}
 	envMap := buildEnvMap()
 	return json.Marshal(envMap)
 }
