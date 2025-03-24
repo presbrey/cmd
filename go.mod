@@ -4,6 +4,7 @@ go 1.23.6
 
 require (
 	github.com/joho/godotenv v1.5.1
+	github.com/pelletier/go-toml/v2 v2.1.1
 	github.com/presbrey/argon2aes v1.0.4
 )
 
