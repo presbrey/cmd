@@ -76,21 +76,15 @@ func main() {
 		tcp = true
 	}
 
-	// Get socket information
-	sockets, err := lib.GetSockets(tcp, udp, listening, all)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Display socket information
-	displaySockets(sockets, numeric, process)
+	// Display socket information using range function
+	displaySocketsWithRange(tcp, udp, listening, all, numeric, process)
 }
 
 // getSockets retrieves socket information based on the specified filters
 // Platform-specific implementation is in sockets_*.go files
 
-func displaySockets(sockets []lib.Socket, numeric, showProcess bool) {
+// displaySocketsWithRange uses the range function to display sockets
+func displaySocketsWithRange(tcp, udp, listening, all, numeric, showProcess bool) {
 	// Print header in the style of the actual ss command
 	fmt.Printf("%-5s %-11s %-23s %-23s", "Netid", "State", "Local Address:Port", "Peer Address:Port")
 	if showProcess {
@@ -98,8 +92,8 @@ func displaySockets(sockets []lib.Socket, numeric, showProcess bool) {
 	}
 	fmt.Println()
 
-	// Print sockets
-	for _, s := range sockets {
+	// Use range function to process each socket
+	for s := range lib.Sockets(tcp, udp, listening, all) {
 		localAddr := s.LocalAddr
 		remoteAddr := s.RemoteAddr
 
