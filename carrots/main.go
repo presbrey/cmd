@@ -76,6 +76,7 @@ func main() {
 	token := flag.String("token", defaultToken, "GitHub personal access token")
 	dir := flag.String("dir", defaultDir, "Git repository directory")
 	output := flag.String("output", defaultOutput, "Output file (default: CARROTS.md)")
+	includeResolved := flag.Bool("include-resolved", false, "Include prompts from resolved comment threads")
 	flag.Parse()
 
 	if *token == "" {
@@ -114,7 +115,7 @@ func main() {
 
 	fmt.Fprintf(outputWriter, "Found PR #%d: %s\n\n", pr.Number, pr.Title)
 
-	prompts, err := extractAIPrompts(config, pr.Number)
+	prompts, err := extractAIPrompts(config, pr.Number, *includeResolved)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error extracting prompts: %v\n", err)
 		os.Exit(1)
@@ -277,11 +278,15 @@ func getResolvedThreadIDs(config *Config, prNumber int) (map[int]bool, error) {
 	return resolvedIDs, nil
 }
 
-func extractAIPrompts(config *Config, prNumber int) ([]string, error) {
-	// Get resolved thread IDs
-	resolvedThreads, err := getResolvedThreadIDs(config, prNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get resolved threads: %w", err)
+func extractAIPrompts(config *Config, prNumber int, includeResolved bool) ([]string, error) {
+	// Get resolved thread IDs (only if we need to skip them)
+	var resolvedThreads map[int]bool
+	if !includeResolved {
+		var err error
+		resolvedThreads, err = getResolvedThreadIDs(config, prNumber)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get resolved threads: %w", err)
+		}
 	}
 
 	// Get PR comments (issue comments - not part of code review threads)
@@ -338,20 +343,20 @@ func extractAIPrompts(config *Config, prNumber int) ([]string, error) {
 		}
 	}
 
-	// Process review comments, filtering out resolved threads
+	// Process review comments, filtering out resolved threads if requested
 	for _, comment := range reviewComments {
 		// Check if comment is from coderabbitai bot
 		if comment.User.Login != "coderabbitai" && comment.User.Type != "Bot" {
 			continue
 		}
 
-		// Skip if this comment is part of a resolved thread
-		if resolvedThreads[comment.ID] {
+		// Skip if this comment is part of a resolved thread (only if not including resolved)
+		if !includeResolved && resolvedThreads[comment.ID] {
 			continue
 		}
 
-		// Also skip if it's a reply to a resolved comment
-		if comment.InReplyToID != nil && resolvedThreads[*comment.InReplyToID] {
+		// Also skip if it's a reply to a resolved comment (only if not including resolved)
+		if !includeResolved && comment.InReplyToID != nil && resolvedThreads[*comment.InReplyToID] {
 			continue
 		}
 
