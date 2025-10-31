@@ -404,7 +404,7 @@ func makeGitHubRequestWithAccept(url, token, acceptHeader string) ([]byte, error
 			if k == "Authorization" {
 				fmt.Fprintf(os.Stderr, "  %s: Bearer [REDACTED]\n", k)
 			} else {
-				fmt.Fprintf(os.Stderr, "  %s: %s\n", k, v)
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", k, strings.Join(v, ", "))
 			}
 		}
 		fmt.Fprintf(os.Stderr, "\n")
@@ -427,7 +427,7 @@ func makeGitHubRequestWithAccept(url, token, acceptHeader string) ([]byte, error
 		fmt.Fprintf(os.Stderr, "Status: %d %s\n", resp.StatusCode, resp.Status)
 		fmt.Fprintf(os.Stderr, "Headers:\n")
 		for k, v := range resp.Header {
-			fmt.Fprintf(os.Stderr, "  %s: %s\n", k, v)
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", k, strings.Join(v, ", "))
 		}
 		fmt.Fprintf(os.Stderr, "\nBody:\n")
 
