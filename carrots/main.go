@@ -25,6 +25,8 @@ const (
 	userAgent     = "carrots/1.0"
 )
 
+var debugMode bool
+
 type Config struct {
 	Owner  string
 	Repo   string
@@ -77,7 +79,10 @@ func main() {
 	dir := flag.String("dir", defaultDir, "Git repository directory")
 	output := flag.String("output", defaultOutput, "Output file (default: CARROTS.md)")
 	includeResolved := flag.Bool("include-resolved", false, "Include prompts from resolved comment threads")
+	debug := flag.Bool("debug", false, "Pretty print all API requests and responses")
 	flag.Parse()
+
+	debugMode = *debug
 
 	if *token == "" {
 		fmt.Fprintln(os.Stderr, "Error: GitHub token required. Set CARROTS_TOKEN or GITHUB_TOKEN env var or use -token flag")
@@ -389,6 +394,22 @@ func makeGitHubRequestWithAccept(url, token, acceptHeader string) ([]byte, error
 	req.Header.Set("Accept", acceptHeader)
 	req.Header.Set("User-Agent", userAgent)
 
+	if debugMode {
+		fmt.Fprintf(os.Stderr, "\n=== API REQUEST ===\n")
+		fmt.Fprintf(os.Stderr, "Method: %s\n", req.Method)
+		fmt.Fprintf(os.Stderr, "URL: %s\n", url)
+		fmt.Fprintf(os.Stderr, "Headers:\n")
+		for k, v := range req.Header {
+			// Redact the token for security
+			if k == "Authorization" {
+				fmt.Fprintf(os.Stderr, "  %s: Bearer [REDACTED]\n", k)
+			} else {
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", k, v)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "\n")
+	}
+
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -399,6 +420,30 @@ func makeGitHubRequestWithAccept(url, token, acceptHeader string) ([]byte, error
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if debugMode {
+		fmt.Fprintf(os.Stderr, "=== API RESPONSE ===\n")
+		fmt.Fprintf(os.Stderr, "Status: %d %s\n", resp.StatusCode, resp.Status)
+		fmt.Fprintf(os.Stderr, "Headers:\n")
+		for k, v := range resp.Header {
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", k, v)
+		}
+		fmt.Fprintf(os.Stderr, "\nBody:\n")
+
+		// Try to pretty print JSON
+		var prettyJSON interface{}
+		if err := json.Unmarshal(body, &prettyJSON); err == nil {
+			prettyBody, err := json.MarshalIndent(prettyJSON, "", "  ")
+			if err == nil {
+				fmt.Fprintf(os.Stderr, "%s\n", string(prettyBody))
+			} else {
+				fmt.Fprintf(os.Stderr, "%s\n", string(body))
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "%s\n", string(body))
+		}
+		fmt.Fprintf(os.Stderr, "\n")
 	}
 
 	if resp.StatusCode != http.StatusOK {
