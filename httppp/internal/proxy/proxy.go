@@ -197,7 +197,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Create the proxied request
 	proxyReq, err := http.NewRequest(r.Method, targetURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error creating proxy request: %v", err), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Error creating proxy request: %v", err), http.StatusBadGateway)
 		return
 	}
 

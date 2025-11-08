@@ -1,4 +1,4 @@
-package sync1
+package sync
 
 import (
 	"crypto/md5"

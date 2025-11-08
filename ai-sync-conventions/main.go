@@ -7,20 +7,20 @@ import (
 	"os"
 	"strings"
 
-	"github.com/presbrey/cmd/internal/sync1"
+	"github.com/presbrey/cmd/ai-sync-conventions/internal/sync"
 )
 
 func main() {
 	startPath := flag.String("path", "", "Starting path to search for sync files (defaults to current directory)")
 	flag.Parse()
 
-	root, err := sync1.FindSyncRoot(*startPath)
+	root, err := sync.FindSyncRoot(*startPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error finding sync root: %v\n", err)
 		os.Exit(1)
 	}
 
-	syncManager := sync1.NewSyncManager()
+	syncManager := sync.NewSyncManager()
 	plan, err := syncManager.CreatePlan(root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating sync plan: %v\n", err)

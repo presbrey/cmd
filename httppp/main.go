@@ -38,18 +38,10 @@ func main() {
 	if *maxBodySize >= 0 {
 		cfg.MaxBodySize = *maxBodySize
 	}
-	if flag.Lookup("only-headers").Value.String() == "true" {
-		cfg.OnlyHeaders = *onlyHeaders
-	}
-	if flag.Lookup("only-body").Value.String() == "true" {
-		cfg.OnlyBody = *onlyBody
-	}
-	if flag.Lookup("only-json").Value.String() == "true" {
-		cfg.OnlyJSON = *onlyJSON
-	}
-	if flag.Lookup("skip-tls-verify").Value.String() == "true" {
-		cfg.SkipTLSVerify = *skipTLSVerify
-	}
+	cfg.OnlyHeaders = *onlyHeaders
+	cfg.OnlyBody = *onlyBody
+	cfg.OnlyJSON = *onlyJSON
+	cfg.SkipTLSVerify = *skipTLSVerify
 
 	// Validate required configuration
 	if cfg.TargetURL == "" {
