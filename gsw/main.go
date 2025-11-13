@@ -331,6 +331,11 @@ func displayRepoStatus(status RepoStatus, showClean bool) {
 	}
 
 	if len(status.Branches) == 0 {
+		fmt.Printf("📁 %s\n", status.Path)
+		if !showClean {
+			fmt.Println("   ✓ All branches clean")
+			fmt.Println()
+		}
 		return
 	}
 
