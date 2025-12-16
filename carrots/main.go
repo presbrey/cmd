@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,8 +22,9 @@ func init() {
 }
 
 const (
-	githubAPIBase = "https://api.github.com"
-	userAgent     = "carrots/1.0"
+	githubAPIBase    = "https://api.github.com"
+	githubGraphQLURL = "https://api.github.com/graphql"
+	userAgent        = "carrots/1.0"
 )
 
 var debugMode bool
@@ -35,6 +37,7 @@ type Config struct {
 	Output string `env:"OUTPUT"                      envDefault:"CARROTS.md"`
 
 	IncludeResolved bool `env:"INCLUDE_RESOLVED"            envDefault:"false"`
+	IncludeOutdated bool `env:"INCLUDE_OUTDATED"            envDefault:"false"`
 
 	// These are populated from git, not environment
 	Owner  string `env:"-"`
@@ -61,15 +64,61 @@ type Comment struct {
 	SubjectType         string    `json:"subject_type,omitempty"`
 }
 
-type ReviewThread struct {
-	ID       int       `json:"id"`
-	Comments []Comment `json:"comments"`
-	Resolved bool      `json:"resolved"`
-}
-
 type User struct {
 	Login string `json:"login"`
 	Type  string `json:"type"`
+}
+
+// GraphQL types for querying review threads
+type GraphQLRequest struct {
+	Query     string                 `json:"query"`
+	Variables map[string]interface{} `json:"variables"`
+}
+
+type GraphQLResponse struct {
+	Data   GraphQLData    `json:"data"`
+	Errors []GraphQLError `json:"errors,omitempty"`
+}
+
+type GraphQLError struct {
+	Message string `json:"message"`
+}
+
+type GraphQLData struct {
+	Repository struct {
+		PullRequest struct {
+			ReviewThreads struct {
+				PageInfo struct {
+					HasNextPage bool   `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
+				Nodes []GraphQLReviewThread `json:"nodes"`
+			} `json:"reviewThreads"`
+		} `json:"pullRequest"`
+	} `json:"repository"`
+}
+
+type GraphQLReviewThread struct {
+	ID         string `json:"id"`
+	IsResolved bool   `json:"isResolved"`
+	IsOutdated bool   `json:"isOutdated"`
+	Comments   struct {
+		Nodes []GraphQLComment `json:"nodes"`
+	} `json:"comments"`
+}
+
+type GraphQLComment struct {
+	DatabaseId int    `json:"databaseId"`
+	Body       string `json:"body"`
+	Author     struct {
+		Login string `json:"login"`
+	} `json:"author"`
+}
+
+// ThreadStatus holds the status of a review thread
+type ThreadStatus struct {
+	IsResolved bool
+	IsOutdated bool
 }
 
 func main() {
@@ -119,7 +168,7 @@ func main() {
 
 	fmt.Fprintf(outputWriter, "Found PR #%d: %s\n\n", pr.Number, pr.Title)
 
-	prompts, err := extractAIPrompts(cfg, pr.Number, cfg.IncludeResolved)
+	prompts, err := extractAIPrompts(cfg, pr.Number, cfg.IncludeResolved, cfg.IncludeOutdated)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error extracting prompts: %v\n", err)
 		os.Exit(1)
@@ -196,79 +245,155 @@ func findPRForBranch(config *Config) (*PullRequest, error) {
 	return &prs[0], nil
 }
 
-func getResolvedThreadIDs(config *Config, prNumber int) (map[int]bool, error) {
-	// Fetch all review comments using pagination
-	threadsURL := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/comments",
-		githubAPIBase, config.Owner, config.Repo, prNumber)
+// getReviewThreadStatusGraphQL fetches review thread status using GitHub GraphQL API.
+// Returns a map of comment database IDs to their thread status (resolved/outdated).
+func getReviewThreadStatusGraphQL(config *Config, prNumber int) (map[int]ThreadStatus, error) {
+	query := `
+query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      reviewThreads(first: 100, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          comments(first: 100) {
+            nodes {
+              databaseId
+              body
+              author {
+                login
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`
 
-	var allReviewComments []struct {
-		ID                  int    `json:"id"`
-		PullRequestReviewID *int   `json:"pull_request_review_id"`
-		InReplyToID         *int   `json:"in_reply_to_id"`
-		Body                string `json:"body"`
-	}
+	result := make(map[int]ThreadStatus)
+	var cursor *string
 
-	// Iterate through all pages
-	for body, err := range iterGitHubPages(threadsURL, config.Token, "application/vnd.github.v3+json") {
+	for {
+		variables := map[string]interface{}{
+			"owner":    config.Owner,
+			"repo":     config.Repo,
+			"prNumber": prNumber,
+			"cursor":   cursor,
+		}
+
+		resp, err := makeGraphQLRequest(query, variables, config.Token)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("GraphQL request failed: %w", err)
 		}
 
-		var pageComments []struct {
-			ID                  int    `json:"id"`
-			PullRequestReviewID *int   `json:"pull_request_review_id"`
-			InReplyToID         *int   `json:"in_reply_to_id"`
-			Body                string `json:"body"`
+		if len(resp.Errors) > 0 {
+			return nil, fmt.Errorf("GraphQL errors: %s", resp.Errors[0].Message)
 		}
-		if err := json.Unmarshal(body, &pageComments); err != nil {
-			return nil, fmt.Errorf("failed to parse review threads: %w", err)
+
+		threads := resp.Data.Repository.PullRequest.ReviewThreads
+		for _, thread := range threads.Nodes {
+			status := ThreadStatus{
+				IsResolved: thread.IsResolved,
+				IsOutdated: thread.IsOutdated,
+			}
+			// Map each comment's database ID to the thread's status
+			for _, comment := range thread.Comments.Nodes {
+				result[comment.DatabaseId] = status
+			}
 		}
-		allReviewComments = append(allReviewComments, pageComments...)
+
+		if !threads.PageInfo.HasNextPage {
+			break
+		}
+		cursor = &threads.PageInfo.EndCursor
 	}
 
-	// Build map of resolved comment IDs
-	// For now, we'll check if a comment body contains resolution markers
-	// A better approach would be to use GraphQL, but this works with REST API
-	resolvedIDs := make(map[int]bool)
-
-	for _, comment := range allReviewComments {
-		// Check if this comment or its thread contains resolution markers
-		// GitHub doesn't expose resolution status directly in REST API v3
-		// so we look for the conversation being marked as resolved in replies
-		if strings.Contains(strings.ToLower(comment.Body), "marked this conversation as resolved") ||
-			strings.Contains(strings.ToLower(comment.Body), "resolved this conversation") {
-			// Mark this comment and its thread as resolved
-			resolvedIDs[comment.ID] = true
-			if comment.InReplyToID != nil {
-				resolvedIDs[*comment.InReplyToID] = true
-			}
-			// Mark all comments in the same thread
-			threadRoot := comment.ID
-			if comment.InReplyToID != nil {
-				threadRoot = *comment.InReplyToID
-			}
-			for _, c := range allReviewComments {
-				if c.InReplyToID != nil && *c.InReplyToID == threadRoot {
-					resolvedIDs[c.ID] = true
-				}
-				if c.ID == threadRoot {
-					resolvedIDs[c.ID] = true
-				}
-			}
-		}
-	}
-
-	return resolvedIDs, nil
+	return result, nil
 }
 
-func extractAIPrompts(config *Config, prNumber int, includeResolved bool) ([]string, error) {
-	// Get resolved thread IDs (only if we need to skip them)
-	var resolvedThreads map[int]bool
-	if !includeResolved {
+// makeGraphQLRequest sends a GraphQL query to GitHub and returns the parsed response.
+func makeGraphQLRequest(query string, variables map[string]interface{}, token string) (*GraphQLResponse, error) {
+	reqBody := GraphQLRequest{
+		Query:     query,
+		Variables: variables,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", githubGraphQLURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+
+	if debugMode {
+		fmt.Fprintf(os.Stderr, "\n=== GraphQL REQUEST ===\n")
+		fmt.Fprintf(os.Stderr, "URL: %s\n", githubGraphQLURL)
+		fmt.Fprintf(os.Stderr, "Query: %s\n", query)
+		prettyVars, _ := json.MarshalIndent(variables, "", "  ")
+		fmt.Fprintf(os.Stderr, "Variables: %s\n\n", string(prettyVars))
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if debugMode {
+		fmt.Fprintf(os.Stderr, "=== GraphQL RESPONSE ===\n")
+		fmt.Fprintf(os.Stderr, "Status: %d %s\n", resp.StatusCode, resp.Status)
+		var prettyJSON interface{}
+		if err := json.Unmarshal(body, &prettyJSON); err == nil {
+			prettyBody, _ := json.MarshalIndent(prettyJSON, "", "  ")
+			fmt.Fprintf(os.Stderr, "Body:\n%s\n\n", string(prettyBody))
+		} else {
+			fmt.Fprintf(os.Stderr, "Body:\n%s\n\n", string(body))
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub GraphQL API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var graphQLResp GraphQLResponse
+	if err := json.Unmarshal(body, &graphQLResp); err != nil {
+		return nil, fmt.Errorf("failed to parse GraphQL response: %w", err)
+	}
+
+	return &graphQLResp, nil
+}
+
+func extractAIPrompts(config *Config, prNumber int, includeResolved, includeOutdated bool) ([]string, error) {
+	// Get thread status via GraphQL (only if we need to filter)
+	var threadStatus map[int]ThreadStatus
+	if !includeResolved || !includeOutdated {
 		var err error
-		resolvedThreads, err = getResolvedThreadIDs(config, prNumber)
+		threadStatus, err = getReviewThreadStatusGraphQL(config, prNumber)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get resolved threads: %w", err)
+			return nil, fmt.Errorf("failed to get thread status via GraphQL: %w", err)
 		}
 	}
 
@@ -327,21 +452,23 @@ func extractAIPrompts(config *Config, prNumber int, includeResolved bool) ([]str
 			return nil, fmt.Errorf("failed to parse review comments: %w", err)
 		}
 
-		// Process review comments, filtering out resolved threads if requested
+		// Process review comments, filtering out resolved/outdated threads if requested
 		for _, comment := range reviewComments {
 			// Check if comment is from coderabbitai bot
 			if comment.User.Login != "coderabbitai" && comment.User.Type != "Bot" {
 				continue
 			}
 
-			// Skip if this comment is part of a resolved thread (only if not including resolved)
-			if !includeResolved && resolvedThreads[comment.ID] {
-				continue
-			}
-
-			// Also skip if it's a reply to a resolved comment (only if not including resolved)
-			if !includeResolved && comment.InReplyToID != nil && resolvedThreads[*comment.InReplyToID] {
-				continue
+			// Check thread status using GraphQL data
+			if status, ok := threadStatus[comment.ID]; ok {
+				// Skip if this thread is resolved (unless including resolved)
+				if !includeResolved && status.IsResolved {
+					continue
+				}
+				// Skip if this thread is outdated (unless including outdated)
+				if !includeOutdated && status.IsOutdated {
+					continue
+				}
 			}
 
 			// Extract prompts from comment body
