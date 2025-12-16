@@ -1,3 +1,5 @@
+github.com/caarlos0/env/v10 v10.0.0 h1:yIHUBZGsyqCnpTkbjk8asUlx6RFhhEs+h7TOBdgdzXA=
+github.com/caarlos0/env/v10 v10.0.0/go.mod h1:ZfulV76NvVPw3tm591U4SwL3Xx9ldzBP9aGxzeN7G18=
 github.com/caarlos0/env/v11 v11.3.1 h1:cArPWC15hWmEt+gWk7YBi7lEXTXCvpaSdCiZE2X5mCA=
 github.com/caarlos0/env/v11 v11.3.1/go.mod h1:qupehSf/Y0TUTsxKywqRt/vJjN5nz6vauiYEUUr8P4U=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -11,8 +13,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/presbrey/argon2aes v1.0.4 h1:WHPaAOXMJLSvPRXdgCBk/RWhGrolIZkLj6QQwrcE53Y=
 github.com/presbrey/argon2aes v1.0.4/go.mod h1:49avT/w2gTKEduvtNKz55dY3H4QitqklzCic4DqsneA=
-github.com/presbrey/pkg v0.0.0-20251023185153-ff26df106025 h1:Lc1ekkQkLEpX4a0RHxsRzHgW+/Vn0Cp/jkLO4Xpm57o=
-github.com/presbrey/pkg v0.0.0-20251023185153-ff26df106025/go.mod h1:99wUYkKllxxwW20gMpCAcHT3qW58y8sZRNxqhXAgqUY=
+github.com/presbrey/pkg v0.0.0-20251104183518-bc63a83c1259 h1:JIsf/JrB2woL6O7Vbtyc8k9OCJcyGlieDE0nUhPBTCI=
+github.com/presbrey/pkg v0.0.0-20251104183518-bc63a83c1259/go.mod h1:pe4CAf2o95SkWyBuAsomHWzTlcrs6acBNkzy2te68PQ=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
 github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=
