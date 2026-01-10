@@ -186,13 +186,33 @@ func main() {
 }
 
 func populateRepoConfig(dir string) error {
-	// Get current branch
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	// Get the tracking branch (upstream) for PR lookup
+	// Format: refs/remotes/origin/branch-name -> extract branch-name
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
 	branchOutput, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("failed to get current branch: %w", err)
+		// Fall back to local branch if no upstream is set
+		cmd = exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+		branchOutput, err = cmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get current branch: %w", err)
+		}
+		cfg.Branch = strings.TrimSpace(string(branchOutput))
+	} else {
+		// Extract branch name from origin/branch-name
+		upstream := strings.TrimSpace(string(branchOutput))
+		if strings.HasPrefix(upstream, "origin/") {
+			cfg.Branch = strings.TrimPrefix(upstream, "origin/")
+		} else {
+			// Handle other remotes: remote/branch -> branch
+			parts := strings.SplitN(upstream, "/", 2)
+			if len(parts) == 2 {
+				cfg.Branch = parts[1]
+			} else {
+				cfg.Branch = upstream
+			}
+		}
 	}
-	cfg.Branch = strings.TrimSpace(string(branchOutput))
 
 	// Get remote URL
 	cmd = exec.Command("git", "-C", dir, "config", "--get", "remote.origin.url")
